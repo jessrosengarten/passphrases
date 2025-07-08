@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import math
+import math, statistics
 import secrets
 from dataclasses import dataclass
 from typing import Dict, List
@@ -228,35 +228,6 @@ def streamlit_ui():
         word_count = st.slider("Number of words", 2, 8, value=default_words)
         count = st.number_input("How many passphrases?", 1, 20, value=3)
 
-        wordlist = _get_wordlist(lang)
-        sampled_words = _rng.sample(wordlist, word_count)
-        estimated_words = sampled_words.copy()
-
-        if custom_word:
-            estimated_words[_rng.randrange(len(estimated_words))] = custom_word[:MAX_CUSTOM_WORD_LENGTH]
-
-        if include_number:
-            if number_mode == "Custom" and custom_number and custom_number.strip().isdigit():
-                number_token = custom_number.strip()
-            else:
-                digit_len = _rng.choice([1, 2, 3, 4])
-                number_token = str(_rng.randrange(10 ** (digit_len - 1), 10 ** digit_len))
-            estimated_words.insert(_rng.randrange(len(estimated_words) + 1), number_token)
-
-        if include_special:
-            if special_mode == "Custom" and custom_special and custom_special.strip() in SPECIAL_CHARS:
-                special_token = custom_special.strip()
-            else:
-                special_token = _secure_choice(SPECIAL_CHARS)
-            estimated_words.insert(_rng.randrange(len(estimated_words) + 1), special_token)
-
-        estimated_length = sum(len(w) for w in estimated_words)
-
-        if include_spaces:
-            estimated_length += len(estimated_words) - 1
-        else:
-            estimated_length -= word_count - 1
-
         opts = PassphraseOptions(
             words=word_count,
             lang=lang,
@@ -271,9 +242,30 @@ def streamlit_ui():
             enforce_complexity=enforce_complexity,
         )
 
-        st.info(f"Estimated Length: {estimated_length} characters")
-        if estimated_length > MAX_LENGTH:
-            st.warning(f"⚠️ Estimated length may exceed {MAX_LENGTH} characters!")
+        test_samples = []
+        errors = []
+        
+        # Try to generate 10 valid samples, but skip ones that raise errors
+        for _ in range(10): # THIS WAS 5
+            try:
+                sample = generate_passphrase(opts) 
+                test_samples.append(sample)
+            except Exception as e:
+                errors.append(str(e))
+
+        if test_samples:
+            max_estimated_length = max(len(p) for p in test_samples)
+            avg_estimated_length = sum(len(p) for p in test_samples) // len(test_samples)
+            median_estimated_length = statistics.median(len(p) for p in test_samples)
+        else:
+            max_estimated_length = 0
+            avg_estimated_length = 0
+            median_estimated_length = 0
+        st.info(f"Estimated Characters: avg: {avg_estimated_length}, median: {median_estimated_length}, max: {max_estimated_length}")
+        if max_estimated_length > MAX_LENGTH - 4:
+            st.warning(f"Max estimated length may exceed {MAX_LENGTH} characters. Try fewer words.")
+
+    
 
     def entropy_label(entropy: float) -> str:
         if entropy < 30:
