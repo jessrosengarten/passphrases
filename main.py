@@ -169,10 +169,25 @@ def new(
             typer.echo(generate_passphrase(opts))
         except Exception as e:
             typer.secho(f"Error: {e}", fg=typer.colors.RED)
+# function to calculate the estimated length
+def calculate_estimated_lengths(opts):
+    test_samples = []
+    for _ in range(10):
+        try:
+            test_samples.append(generate_passphrase(opts))
+        except Exception:
+            continue
+    if test_samples:
+        return max(len(p) for p in test_samples)
+    return 0
 
 # Web interface
 def streamlit_ui():
     import streamlit as st
+
+    # Initialize flag to track if "Generate" was clicked
+    if "clicked_generate" not in st.session_state:
+        st.session_state.clicked_generate = False
 
     st.set_page_config(page_title="Passphrase Generator", page_icon="🔐", layout="centered")
     st.title("🔐 Passphrase Generator")
@@ -228,6 +243,19 @@ def streamlit_ui():
         word_count = st.slider("Number of words", 2, 8, value=default_words)
         count = st.number_input("How many passphrases?", 1, 20, value=3)
 
+        # Auto-reset clicked_generate when user changes inputs
+        if (
+            "last_word_count" in st.session_state and st.session_state.last_word_count != word_count
+        ) or (
+            "last_count" in st.session_state and st.session_state.last_count != count
+        ):
+            st.session_state.clicked_generate = False
+
+        # Save current inputs to session for next run
+        st.session_state.last_word_count = word_count
+        st.session_state.last_count = count
+
+
         opts = PassphraseOptions(
             words=word_count,
             lang=lang,
@@ -241,42 +269,15 @@ def streamlit_ui():
             custom_word=custom_word,
             enforce_complexity=enforce_complexity,
         )
+               
+        if st.sidebar.button("Reset warning state"):
+            st.session_state.clicked_generate = False
 
-        # Generate test samples
-        test_samples = []
-        errors = []
         
-        # Generate 10 valid samples, but skip ones that raise errors
-        # Try up to 100 times to get 10 valid passphrases
-        attempts = 0
-        while len(test_samples) < 10 and attempts < 100:
-            attempts += 1
-            try:
-                sample = generate_passphrase(opts)
-                test_samples.append(sample)
-            except Exception:
-                continue
-
-        # st.write(f"[DEBUG] Samples found: {len(test_samples)}")
-
-        # Calculate lengths
-        if test_samples:
-            max_estimated_length = max(len(p) for p in test_samples)
-            # avg_estimated_length = sum(len(p) for p in test_samples) // len(test_samples)
-            # median_estimated_length = statistics.median(len(p) for p in test_samples)
-
-        else:
-            max_estimated_length = 0
-            # avg_estimated_length = 0
-            # median_estimated_length = 0
-
-        if max_estimated_length > MAX_LENGTH - 5:
-            # st.write(f"[DEBUG] Max estimated length: {max_estimated_length}")
-            st.warning(f"Max estimated length may exceed {MAX_LENGTH} characters. Try fewer words.")
-
-    
-        
-
+        if not st.session_state.get("clicked_generate", False):
+            max_estimated_length = calculate_estimated_lengths(opts)
+            if max_estimated_length > MAX_LENGTH - 5:
+                    st.warning(f"Max estimated length may exceed {MAX_LENGTH} characters. Try fewer words.")
 
     def entropy_label(entropy: float) -> str:
         if entropy < 30:
@@ -299,6 +300,7 @@ def streamlit_ui():
             return "blue"
 
     if st.button("🔐 Generate Passphrases", use_container_width=True):
+        st.session_state.clicked_generate = True
         try:
             pwds = [generate_passphrase(opts) for _ in range(int(count))]
         except Exception as e:
