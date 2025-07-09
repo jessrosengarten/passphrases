@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import math, statistics
+import math, logging
 import secrets
 from dataclasses import dataclass
 from typing import Dict, List
-
 import typer
 import unidecode
 from wordfreq import top_n_list
@@ -36,6 +35,11 @@ _rng = secrets.SystemRandom() # Secure random  number generator
 MAX_LENGTH = 72
 MAX_CUSTOM_WORD_LENGTH = 15 # Max length of custom user word
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)  
+logger = logging.getLogger(__name__)
+
+
 # Get a list of top words (for selected language)
 def _get_wordlist(lang: str, n: int = 5000) -> List[str]:
     if lang in _WORDLIST_CACHE:
@@ -43,6 +47,7 @@ def _get_wordlist(lang: str, n: int = 5000) -> List[str]:
     words = [unidecode.unidecode(w).lower() for w in top_n_list(lang, n)]
     words = [w for w in words if w.isascii() and w.isalpha()]
     _WORDLIST_CACHE[lang] = words
+    logger.debug(f"Generating new wordlist for: {lang}")
     return words
 
 # Select a secure random element from the sequence
@@ -86,11 +91,14 @@ def generate_passphrase(opts: PassphraseOptions) -> str:
         if opts.words <= len(wordlist)
         else [_secure_choice(wordlist) for _ in range(opts.words)]
     )
+    logger.debug(f"Selected words: {parts}")
+
 
     # If a custom word is provided - insert it at a random index
     if opts.custom_word:
         custom = opts.custom_word.strip()[:MAX_CUSTOM_WORD_LENGTH]
         parts[_rng.randrange(len(parts))] = custom
+        logger.debug(f"Inserted custom word: {custom}")
 
     # Capitalize one random word
     idx_cap = _rng.randrange(len(parts))
@@ -114,6 +122,7 @@ def generate_passphrase(opts: PassphraseOptions) -> str:
     if opts.include_special or opts.enforce_complexity:
         special_token = _valid_special(opts.custom_special) if opts.special_mode == "Custom" else None
         _insert_random(special_token or _secure_choice(SPECIAL_CHARS))
+        logger.debug(f"Inserted special char: {special_token or 'random'}")
 
     # Join the final passphrase string
     candidate = opts.delimiter().join(parts)
@@ -131,7 +140,7 @@ def generate_passphrase(opts: PassphraseOptions) -> str:
     # If complexity is required: recursively try again until a strong one is created
     if opts.enforce_complexity and not meets_complexity(candidate):
         return generate_passphrase(opts)
-
+    logger.debug(f"Final candidate: {candidate}")
     return candidate
 
 # Use zxcvbn to ensure passphrase meets strength requirements
@@ -150,7 +159,14 @@ def new(
     lang: str = typer.Option("en", "--lang", help="Language code"),
     number: str = typer.Option(None, "--number", help="Custom digits"),
     special: str = typer.Option(None, "--special", help="Custom special char"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+
 ):
+    if debug:
+        logger.setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Debug logging enabled.")
+
     # Convert CLI options to passphrase configuration
     opts = PassphraseOptions(
         words=words,
@@ -276,7 +292,7 @@ def streamlit_ui():
         
         if not st.session_state.get("clicked_generate", False):
             max_estimated_length = calculate_estimated_lengths(opts)
-            if max_estimated_length > MAX_LENGTH - 5:
+            if max_estimated_length > MAX_LENGTH - 2:
                     st.warning(f"Max estimated length may exceed {MAX_LENGTH} characters. Try fewer words.")
 
     def entropy_label(entropy: float) -> str:
