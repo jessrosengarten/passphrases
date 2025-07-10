@@ -33,7 +33,9 @@ SPECIAL_CHARS = "!@#$%^&*()"
 _WORDLIST_CACHE: Dict[str, List[str]] = {} # Cached wordlists for performance
 _rng = secrets.SystemRandom() # Secure random  number generator
 MAX_LENGTH = 72
-MAX_CUSTOM_WORD_LENGTH = 15 # Max length of custom user word
+MAX_CUSTOM_WORD_LENGTH = 15 # Max length of custom word
+MAX_CUSTOM_NUMBER_LENGTH = 4 # Max length of custom number
+
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)  
@@ -239,14 +241,43 @@ def streamlit_ui():
             default_words = 4 if not include_spaces else 3
 
             with st.expander("⚙️ Advanced Settings"):
-                custom_word = st.text_input("Custom word", help="Max 15 characters").strip() or None
-                if custom_word and len(custom_word) > MAX_CUSTOM_WORD_LENGTH:
-                    st.error(f"Custom word too long. Max is {MAX_CUSTOM_WORD_LENGTH} characters.")
+                custom_word_raw = st.text_input("Custom word", help=f"Max {MAX_CUSTOM_WORD_LENGTH} characters")
+                
+                # Strip leading and trailing whitespace
+                stripped_word = custom_word_raw.strip() if custom_word_raw else "" 
+
+                # count total characters (including spaces)
+                char_count = len(stripped_word)
+
+                # truncate to safe max
+                custom_word = stripped_word[:MAX_CUSTOM_WORD_LENGTH] if stripped_word else None
+                
+                # live character count and warning
+                st.caption(f"{char_count}/{MAX_CUSTOM_WORD_LENGTH} characters")
+                if char_count > MAX_CUSTOM_WORD_LENGTH:
+                    st.error(f"Custom word too long. Maximum length is {MAX_CUSTOM_WORD_LENGTH} characters. It will be truncated.")
+                if custom_word:
+                    st.caption(f"Word that will be used: '{custom_word}'")
 
                 if include_number:
                     number_mode = st.radio("Number mode", ["Random", "Custom"], horizontal=True)
                     if number_mode == "Custom":
-                        custom_number = st.text_input("Custom number (digits only)")
+                        custom_number_raw = st.text_input(f"Custom number up to {MAX_CUSTOM_NUMBER_LENGTH} digits.")
+                        if custom_number_raw:
+                            # Strip any leading/trailing spaces from the input
+                            stripped_number = custom_number_raw.strip() 
+
+                            # Check if the stripped input contains only digits 
+                            if not stripped_number.isdigit():
+                                st.error(f"⚠️ Please enter digits only (no letters, symbols, or decimals).")
+
+                            # Check if the number is longer than allowed
+                            elif len(stripped_number) > MAX_CUSTOM_NUMBER_LENGTH:
+                                st.error(f"⚠️ Number too long. Max is {MAX_CUSTOM_NUMBER_LENGTH} digits.")
+                            else:
+                                custom_number = stripped_number
+
+                                
 
                 if include_special:
                     special_mode = st.radio("Special mode", ["Random", "Custom"], horizontal=True)
@@ -320,8 +351,14 @@ def streamlit_ui():
         try:
             pwds = [generate_passphrase(opts) for _ in range(int(count))]
         except Exception as e:
-            st.error(f"Error: {e}")
+            if "max length" in str(e):
+                st.error("⚠️ Your settings produce a passphrase longer than 72 characters. " \
+                "Try reducing the number of words or disabling special characters.")
+            else:
+                st.error(f"Unexpected error: {e}")
             return
+        except Exception as e:
+            st.error(f"Unexpected error: {e}")
 
         st.success(f"Generated {len(pwds)} passphrase(s)")
         csv = "\n".join(pwds)
